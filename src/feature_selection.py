@@ -124,3 +124,5 @@ if __name__ == "__main__":
     print(f"Caracteristiques conservees : {indices}")
     print(f"Dimensions finales : {selected.shape}")
     print("Tous les tests sont valides.")
+
+    

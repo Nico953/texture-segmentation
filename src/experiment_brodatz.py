@@ -14,45 +14,40 @@ from clustering import (
 )
 
 
-def run_experiment():
-    """Compare standard and iterative K-means on Brodatz textures."""
+def run_experiment(texture_names, name):
+    """Run both K-means methods on a Brodatz mosaic."""
 
     project_root = Path(__file__).resolve().parent.parent
     data_dir = project_root / "data" / "brodatz"
 
     texture_paths = [
-        data_dir / "D9.png",
-        data_dir / "D15.png",
-        data_dir / "D29.png",
-        data_dir / "D68.png"
+        data_dir / texture_name
+        for texture_name in texture_names
     ]
 
-    # Load the mosaic and ground truth
     mosaic, ground_truth = create_mosaic(texture_paths)
 
-    # Apply the Gabor filter bank
     kernels = build_filter_bank()
     filtered, _ = apply_filter_bank(mosaic, kernels)
 
-    # Compute fractal features
     features = fractal_feature_stack(filtered)
 
-    # Select relevant features
     selected, indices, _ = select_features(
         features,
         region_size=16
     )
 
-    print("Mosaic shape:", mosaic.shape)
-    print("Ground truth shape:", ground_truth.shape)
-    print("Selected features:", len(indices))
-    print("Selected indices:", indices)
-
-    # Standard K-means
     labels_standard = standard_kmeans(
         selected,
         n_clusters=4,
         smooth_window=17,
+        random_state=0
+    )
+
+    labels_iterative, history = iterative_kmeans(
+        selected,
+        n_clusters=4,
+        window_sizes=(33, 25, 17),
         random_state=0
     )
 
@@ -62,51 +57,33 @@ def run_experiment():
         n_clusters=4
     )
 
-    # Iterative K-means
-    labels_iterative, status_history = iterative_kmeans(
-        selected,
-        n_clusters=4,
-        window_sizes=(33, 25, 17),
-        random_state=0
-    )
-
     pcc_iterative, mapping_iterative = compute_pcc(
         labels_iterative,
         ground_truth,
         n_clusters=4
     )
 
-    print(f"Standard K-means PCC: {pcc_standard * 100:.2f}%")
-    print(f"Iterative K-means PCC: {pcc_iterative * 100:.2f}%")
+    aligned_standard = np.array([
+        mapping_standard[int(label)]
+        for label in labels_standard.ravel()
+    ]).reshape(mosaic.shape)
 
-    print("Standard mapping:", mapping_standard)
-    print("Iterative mapping:", mapping_iterative)
+    aligned_iterative = np.array([
+        mapping_iterative[int(label)]
+        for label in labels_iterative.ravel()
+    ]).reshape(mosaic.shape)
 
-    for window_size, mask in zip((33, 25, 17), status_history):
-        print(
-            f"Window {window_size}: "
-            f"{np.count_nonzero(mask)} ambiguous pixels"
-        )
+    print(f"\nMosaic {name}")
+    print("Textures:", texture_names)
+    print("Selected features:", len(indices))
+    print(f"Standard PCC: {pcc_standard * 100:.2f}%")
+    print(f"Iterative PCC: {pcc_iterative * 100:.2f}%")
+    print(f"Difference: {(pcc_iterative - pcc_standard) * 100:+.2f} points")
 
-    # Align predicted labels with ground truth classes
-    aligned_standard = np.vectorize(
-        mapping_standard.get
-    )(labels_standard)
-
-    aligned_iterative = np.vectorize(
-        mapping_iterative.get
-    )(labels_iterative)
-
-    # Display the results
     fig, axes = plt.subplots(1, 4, figsize=(16, 4))
 
-    axes[0].imshow(
-        mosaic,
-        cmap="gray",
-        vmin=0,
-        vmax=255
-    )
-    axes[0].set_title("Brodatz mosaic")
+    axes[0].imshow(mosaic, cmap="gray", vmin=0, vmax=255)
+    axes[0].set_title(f"Mosaic {name}")
 
     axes[1].imshow(
         ground_truth,
@@ -124,9 +101,7 @@ def run_experiment():
         vmax=3,
         interpolation="nearest"
     )
-    axes[2].set_title(
-        f"Standard K-means\nPCC: {pcc_standard * 100:.2f}%"
-    )
+    axes[2].set_title(f"Standard: {pcc_standard * 100:.2f}%")
 
     axes[3].imshow(
         aligned_iterative,
@@ -135,9 +110,7 @@ def run_experiment():
         vmax=3,
         interpolation="nearest"
     )
-    axes[3].set_title(
-        f"Iterative K-means\nPCC: {pcc_iterative * 100:.2f}%"
-    )
+    axes[3].set_title(f"Iterative: {pcc_iterative * 100:.2f}%")
 
     for ax in axes:
         ax.axis("off")
@@ -145,6 +118,31 @@ def run_experiment():
     plt.tight_layout()
     plt.show()
 
+    return pcc_standard, pcc_iterative, len(indices)
+
 
 if __name__ == "__main__":
-    run_experiment()
+
+    mosaic = {
+    "A": ["D9.png", "D68.png", "D84.png", "D112.png"],
+}
+
+    results = {}
+
+    for name, textures in mosaic.items():
+        results[name] = run_experiment(textures, name)
+
+    print("\nRESULTS SUMMARY")
+    print("-" * 55)
+    print("Mosaic | Standard | Iterative | Difference | Features")
+
+    for name, (standard, iterative, n_features) in results.items():
+        difference = (iterative - standard) * 100
+
+        print(
+            f"{name:^6} | "
+            f"{standard * 100:7.2f}% | "
+            f"{iterative * 100:8.2f}% | "
+            f"{difference:+8.2f} | "
+            f"{n_features:^8}"
+        )
